@@ -1,0 +1,396 @@
+# Definição da estrutura do personagem jogável e NPCs
+struct Entity {
+    name,
+    hp_max = 100,
+    hp = 100,
+    attack = 10,
+    defense = 0,
+    inventory = [],
+    equipped_armor = None
+}
+
+# Definição da estrutura de Poção
+struct Potion {
+    name,
+    type_potion,
+    hp_restore,
+    attack_boost,
+    defense_boost,
+    duration,
+    recharge_time,
+    time_to_use = 0,
+    last_used_turn = 0,
+    sigle_use = False
+}
+
+# Definição da estrutura da armadura
+struct Armor {
+    name,
+    defense_boost = 0
+}
+
+sleep_time = 1500
+
+# Limpa o console e mostra o cabeçalho do jogo
+fn header() {
+    console.clear()
+    console.log("")
+    console.log("========== Exper RPG ==========")
+    console.log("")
+}
+
+# Aguarda o usuário pressionar Enter para continuar
+fn enter_to_continue() {
+    r = console.input("Pressione Enter para continuar... ")
+    del r
+}
+
+# Mostra os status do personagem
+fn stats(player) {
+    console.log("==== STATUS DE {player.name} ====")
+    console.log("HP: {player.hp}/{player.hp_max}")
+    console.log("Ataque: {player.attack}")
+    console.log("Defesa: {player.defense}")
+    if (player.equipped_armor) {
+        console.log("Armadura: {player.equipped_armor.name} (+{player.equipped_armor.defense_boost} Defesa)")
+    }
+    console.log("===============================")
+}
+
+# Função para atacar, levando em conta ataque e defesa
+fn attack(attacker, defender) {
+    if (attacker.hp <= 0) {
+        return None
+    }
+    damage = attacker.attack - defender.defense
+    if (damage < 0) {
+        damage = 0
+    }
+    console.log(">> {attacker.name} ataca {defender.name} e causa {damage} de dano!")
+    defender.hp = defender.hp - damage
+    if (defender.hp < 0) {
+        defender.hp = 0
+    }
+    console.log("   {defender.name} agora tem {defender.hp}/{defender.hp_max} HP.")
+    return damage
+}
+
+# Exibe inventário do jogador e permite selecionar e usar um item diretamente
+fn player_inventory(player, current_turn) {
+    inventory = player.inventory
+    if (inventory.length == 0) {
+        console.log("Seu inventário está vazio.")
+        enter_to_continue()
+        return
+    }
+    console.log("")
+    console.log("------ Inventário ------")
+    i = 0
+    for (item in inventory) {
+        i++
+        if ("type_potion" in item) {
+            if (item.type_potion == "hp" || item.type_potion == "attack") {
+                if (item.time_to_use > 0) {
+                    console.log("{i}. {item.name} (Recarga: {item.time_to_use} turnos)")
+                } else {
+                    console.log("{i}. {item.name}")
+                }
+            } else {
+                console.log("{i}. {item.name}")
+            }
+        } else {
+            console.log("{i}. {item.name}")
+        }
+    }
+    console.log("------------------------")
+    item_choice = console.input("Digite o número do item que deseja usar (Enter para cancelar): ")
+    if (item_choice == "") {
+        return
+    }
+    item_choice_nro = int(item_choice)
+    if (item_choice_nro < 1 || item_choice_nro > inventory.length) {
+        console.log("Opção inválida.")
+        enter_to_continue()
+        return
+    }
+    # Encontrar o item selecionado (posição segura)
+    idx = 1
+    sel_item = None
+    for (itm in inventory) {
+        if (idx == item_choice_nro) {
+            sel_item = itm
+        }
+        idx++
+    }
+    if (sel_item == None) {
+        console.log("Ocorreu um erro ao selecionar o item.")
+        enter_to_continue()
+        return
+    }
+    # Validação de tipo e uso exclusivo para poções
+    if (!("type_potion" in sel_item)) {
+        console.log("Este item não pode ser usado.")
+        enter_to_continue()
+        return
+    }
+
+    # ------ Lógica de uso de poção (inline do antigo use_potion) ------
+    # Controle de recarga (se possuir campo de recarga)
+    if ("recharge_time" in sel_item) {
+        time_passed = current_turn - sel_item.last_used_turn
+        if (sel_item.time_to_use > 0) {
+            sel_item.time_to_use = sel_item.recharge_time - time_passed
+            if (sel_item.time_to_use < 0) {
+                sel_item.time_to_use = 0
+            }
+        }
+        if (sel_item.time_to_use > 0) {
+            console.log("A poção {sel_item.name} ainda está em recarga. Faltam {sel_item.time_to_use} turnos para usar novamente.")
+            enter_to_continue()
+            return
+        }
+    }
+    # Aplicação dos efeitos da poção
+    if (sel_item.type_potion == "hp") {
+        if (sel_item.name == "Maçã") {
+            player.hp = player.hp_max
+            console.log("Você usou {sel_item.name} e recuperou TODO seu HP!")
+        } else {
+            player.hp = player.hp + sel_item.hp_restore
+            if (player.hp > player.hp_max) {
+                player.hp = player.hp_max
+            }
+            console.log("Você usou {sel_item.name} e restaurou {sel_item.hp_restore} de HP!")
+        }
+    } elif (sel_item.type_potion == "attack") {
+        player.attack = player.attack + sel_item.attack_boost
+        console.log("Você usou {sel_item.name} e aumentou seu ataque em {sel_item.attack_boost} por {sel_item.duration} turnos!")
+        # TODO: após expirar, diminuir ataque (não implementado)
+    }
+    # Marcar recarga se existir
+    if ("recharge_time" in sel_item) {
+        sel_item.time_to_use = sel_item.recharge_time
+        sel_item.last_used_turn = current_turn
+    }
+    # Remover do inventário se for de uso único
+    if ("sigle_use" in sel_item) {
+        if (sel_item.sigle_use) {
+            # Como player.inventory.remove(item) não é suportado de forma confiável, implementar manualmente a remoção
+            new_inventory = []
+            for (loop_item in player.inventory) {
+                if (loop_item != sel_item) {
+                    new_inventory.append(loop_item)
+                }
+            }
+            player.inventory = new_inventory
+            console.log("{sel_item.name} foi consumido e removido do inventário.")
+        }
+    }
+    enter_to_continue()
+    return
+}
+
+# Atualiza a recarga das poções baseando-se no turno atual
+fn update_potions_recharge(player, current_turn) {
+    for (item in player.inventory) {
+        # Só se aplica se for Potion
+        if ("recharge_time" in item) {
+            if (item.time_to_use > 0) {
+                time_passed = current_turn - item.last_used_turn
+                if (item.recharge_time - time_passed <= 0) {
+                    item.time_to_use = 0
+                } else {
+                    item.time_to_use = item.recharge_time - time_passed
+                }
+            }
+        }
+    }
+}
+
+# Cria um inimigo com as características passadas
+fn create_enemy(name, hp, attack, defense, loot) {
+    enemy = Entity()
+    enemy.name = name
+    enemy.hp = hp
+    enemy.hp_max = hp
+    enemy.attack = attack
+    enemy.defense = defense
+    enemy.inventory = loot
+    enemy.equipped_armor = None
+    return enemy
+}
+
+# Sistema de batalha aprimorado entre jogador e inimigo
+fn battle(player, enemy) {
+    turn = 1
+    battle_end = False
+
+    while (player.hp > 0 && enemy.hp > 0) {
+        header()
+        console.log("------ BATALHA! ------")
+        stats(player)
+        stats(enemy)
+        console.log("----------------------")
+        console.log("1. Atacar")
+        console.log("2. Usar item do inventário")
+        console.log("----------------------")
+        console.log("Turno {turn}")
+
+        # Atualiza poções a cada turno
+        update_potions_recharge(player, turn)
+
+        choice = console.input("O que você deseja fazer? ")
+        round_message = ""
+        if (choice == "1") {
+            header()
+            console.log("Sua vez de atacar!\n")
+            damage_to_enemy = attack(player, enemy)
+            sleep(sleep_time / 2)
+            if (enemy.hp > 0) {
+                console.log("")
+                console.log("Vez do inimigo atacar!")
+                damage_to_player = attack(enemy, player)
+            }
+            enter_to_continue()
+            header()
+        } elif (choice == "2") {
+            header()
+            player_inventory(player, turn)
+        } else {
+            console.log("Opção inválida.")
+            enter_to_continue()
+        }
+
+        # Atualiza recarga novamente antes do fim do turno (garante consistência visual)
+        update_potions_recharge(player, turn)
+
+        if (player.hp <= 0 || enemy.hp <= 0) {
+            break
+        }
+        turn++
+    }
+
+    if (player.hp <= 0) {
+        console.log("")
+        console.log("=== VOCÊ FOI DERROTADO! ===")
+    } elif (enemy.hp <= 0) {
+        console.log("")
+        console.log("=== {enemy.name} foi derrotado! ===")
+        if (enemy.inventory.length > 0) {
+            for (item in enemy.inventory) {
+                console.log("{enemy.name} deixou cair {item.name}!")
+                p_inventory = player.inventory
+                p_inventory.append(item)
+            }
+        }
+    }
+    return
+}
+
+# Início do jogo
+player = Entity()
+player.equipped_armor = None
+
+header()
+player.name = console.input("Qual o seu nome? ")
+header()
+console.log("Bem-vindo, {player.name}!")
+sleep(sleep_time)
+r = console.input("Deseja começar a aventura? (s/n) ")
+header()
+
+if (r == "s") {
+
+    console.log("Ótimo! Vamos começar!")
+    enter_to_continue()
+    header()
+    console.log("Você está em uma floresta escura.")
+    sleep(sleep_time)
+    console.log("De repente, um goblin aparece!")
+    enter_to_continue()
+    header()
+
+    # Criação da poção que será dropada pelo Goblin
+    loot_potion = Potion()
+    loot_potion.name = "Poção de Cura I"
+    loot_potion.type_potion = "hp"
+    loot_potion.hp_restore = 10
+    loot_potion.recharge_time = 4
+    loot_potion.last_used_turn = 0
+    loot_potion.time_to_use = 0
+    goblin = create_enemy("Goblin", 50, 5, 0, [loot_potion])
+
+    battle(player, goblin)
+
+    enter_to_continue()
+    header()
+
+    if (player.hp > 0) {
+        console.log("Você derrotou o Goblin! Após a batalha, encontra uma pequena poção no chão.")
+        enter_to_continue()
+        header()
+        console.log("Você agora possui uma Poção de Cura I.")
+        enter_to_continue()
+        header()
+        console.log("DICA: Poções podem ser usadas pelo inventário. Cada poção precisa aguardar sua recarga após o uso. Veja quantos turnos faltam para usar novamente no inventário.")
+        enter_to_continue()
+        header()
+    }
+
+    console.log("Após a batalha, você continua sua jornada pela floresta...")
+    enter_to_continue()
+    header()
+    console.log("Você encontra um baú no meio do caminho.")
+    enter_to_continue()
+    header()
+    console.log("Você abre o baú e encontra uma maçã!")
+    enter_to_continue()
+    header()
+    console.log("Você pode comer Maçãs para encher totalmente sua barra de vida!")
+    apple = Potion()
+    apple.name = "Maçã"
+    apple.type_potion = "hp"
+    apple.hp_restore = 999999 # valor não importa, Maçã sempre cura tudo
+    apple.sigle_use = True
+    apple.recharge_time = 0
+    apple.last_used_turn = 0
+    apple.time_to_use = 0
+    p_inventory = player.inventory
+    p_inventory.append(apple)
+    console.log("Maçã foi adicionada ao inventário!")
+    enter_to_continue()
+    header()
+
+    console.log("Você continua sua jornada pela floresta...")
+    enter_to_continue()
+    header()
+    console.log("De repente, um lobo aparece!")
+    enter_to_continue()
+    header()
+    wolf = create_enemy("Lobo", 80, 15, 2, [])
+    battle(player, wolf)
+
+    enter_to_continue()
+    header()
+
+    if (player.hp > 0) {
+        # Prêmio: Armadura após vencer o lobo
+        armor = Armor()
+        armor.name = "Armadura de Couro"
+        armor.defense_boost = 5
+        player.equipped_armor = armor
+        player.defense = player.defense + armor.defense_boost
+        console.log("Você encontrou uma {armor.name} e equipou-a!")
+        enter_to_continue()
+        header()
+        stats(player)
+        console.log("Sua defesa aumentou em {armor.defense_boost}, Defesa atual: {player.defense}")
+        enter_to_continue()
+        header()
+        console.log("Após vestir sua armadura, você sente-se mais preparado!")
+        enter_to_continue()
+    }
+
+} else {
+    console.log("Tudo bem, talvez outra hora.")
+}
